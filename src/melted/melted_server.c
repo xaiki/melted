@@ -245,39 +245,42 @@ int melted_server_execute( melted_server server )
 
 	response = mvcp_parser_connect( server->parser );
 
-	if ( response != NULL && mvcp_response_get_error_code( response ) == 100 )
-	{
-		/* read configuration file */
-		if ( response != NULL && !server->proxy && server->config != NULL )
-		{
-			mvcp_response_close( response );
-			response = mvcp_parser_run( server->parser, server->config );
-
-			if ( mvcp_response_count( response ) > 1 )
-			{
-				if ( mvcp_response_get_error_code( response ) > 299 )
-					melted_log( LOG_ERR, "Error evaluating server configuration. Processing stopped." );
-				for ( index = 0; index < mvcp_response_count( response ); index ++ )
-					melted_log( LOG_DEBUG, "%4d: %s", index, mvcp_response_get_line( response, index ) );
-			}
-		}
-
-		if ( response != NULL )
-		{
-			int result;
-			mvcp_response_close( response );
-			result = pthread_create( &server->thread, NULL, melted_server_run, server );
-			if ( result )
-			{
-				melted_log( LOG_CRIT, "Failed to launch TCP listener thread" );
-				error = -1;
-			}
-		}
-	}
-	else
+	if ( response == NULL || mvcp_response_get_error_code( response ) == 100 )
 	{
 		melted_log( LOG_ERR, "Error connecting to parser. Processing stopped." );
 		server->shutdown = 1;
+		return -1;
+	}
+
+
+	/* read configuration file */
+	if ( !server->proxy && server->config != NULL )
+	{
+		mvcp_response_close( response );
+		response = mvcp_parser_run( server->parser, server->config );
+
+		if ( response == NULL )
+		{
+			melted_log( LOG_ERR, "There was a problem evaluating config." );
+			server->shutdown = 1;
+			return -1;
+		}
+
+		if ( mvcp_response_count( response ) > 1 )
+		{
+			if ( mvcp_response_get_error_code( response ) > 299 )
+				melted_log( LOG_ERR, "Error evaluating server configuration. Processing stopped." );
+			for ( index = 0; index < mvcp_response_count( response ); index ++ )
+				melted_log( LOG_DEBUG, "%4d: %s", index, mvcp_response_get_line( response, index ) );
+		}
+	}
+
+	int result;
+	mvcp_response_close( response );
+	result = pthread_create( &server->thread, NULL, melted_server_run, server );
+	if ( result )
+	{
+		melted_log( LOG_CRIT, "Failed to launch TCP listener thread" );
 		error = -1;
 	}
 
